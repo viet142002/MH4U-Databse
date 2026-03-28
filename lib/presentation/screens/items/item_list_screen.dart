@@ -1,4 +1,3 @@
-import 'package:drift/drift.dart' hide Column;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -21,55 +20,115 @@ final _itemTypeFilterProvider = StateProvider<String?>((ref) => null);
 final itemListProvider =
     FutureProvider.family<List<Item>, ItemFilter>((ref, filter) async {
   final db = ref.watch(databaseProvider);
-  final query = db.select(db.items);
+
+  final conditions = <String>[];
   if (filter.search != null && filter.search!.isNotEmpty) {
-    query.where((i) => i.name.like('%${filter.search}%'));
+    final s = filter.search!.replaceAll("'", "''");
+    conditions.add("name LIKE '%$s%'");
   }
   if (filter.type != null && filter.type!.isNotEmpty) {
-    query.where((i) => i.type.equals(filter.type!));
+    final t = filter.type!.replaceAll("'", "''");
+    conditions.add("type = '$t'");
   }
-  query.orderBy([(i) => OrderingTerm.asc(i.name)]);
-  return query.get();
+  final where =
+      conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}';
+
+  // Use CAST(col AS INTEGER) so that empty-string values stored in the
+  // real MH4U SQLite DB are coerced to 0, preventing int.parse() failures.
+  final rows = await db.customSelect(
+    '''
+    SELECT _id, name, type, sub_type,
+           COALESCE(CAST(rarity         AS INTEGER), 0) AS rarity,
+           COALESCE(CAST(carry_capacity AS INTEGER), 0) AS carry_capacity,
+           CAST(buy  AS INTEGER) AS buy,
+           CAST(sell AS INTEGER) AS sell,
+           description, icon_name,
+           COALESCE(armor_dupe_name_fix, '') AS armor_dupe_name_fix
+    FROM items
+    $where
+    ORDER BY name ASC
+    ''',
+  ).get();
+
+  return rows
+      .map((r) => Item(
+            id: r.read<int>('_id'),
+            name: r.read<String>('name'),
+            nameDe: '',
+            nameFr: '',
+            nameEs: '',
+            nameIt: '',
+            nameJp: null,
+            type: r.read<String>('type'),
+            subType: r.read<String>('sub_type'),
+            rarity: r.read<int>('rarity'),
+            carryCapacity: r.read<int>('carry_capacity'),
+            buy: r.readNullable<int>('buy'),
+            sell: r.readNullable<int>('sell'),
+            description: r.readNullable<String>('description'),
+            iconName: r.readNullable<String>('icon_name'),
+            armorDupeNameFix: r.read<String>('armor_dupe_name_fix'),
+          ))
+      .toList();
 });
 
 
 final itemDetailProvider =
     FutureProvider.family<ItemEntity?, int>((ref, itemId) async {
   final db = ref.watch(databaseProvider);
-  final item = await (db.select(db.items)
-        ..where((i) => i.id.equals(itemId)))
-      .getSingleOrNull();
-  if (item == null) return null;
 
-  // Raw SQL for combining recipes - avoids Drift async issues
+  // customSelect with CAST so empty-string integers in the real MH4U DB
+  // don't crash int.parse inside Drift's typeMapping.
+  final itemRows = await db.customSelect(
+    '''
+    SELECT _id, name, type, sub_type,
+           COALESCE(CAST(rarity         AS INTEGER), 0) AS rarity,
+           COALESCE(CAST(carry_capacity AS INTEGER), 0) AS carry_capacity,
+           CAST(buy  AS INTEGER) AS buy,
+           CAST(sell AS INTEGER) AS sell,
+           description, icon_name
+    FROM items
+    WHERE _id = $itemId
+    ''',
+  ).get();
+  if (itemRows.isEmpty) return null;
+  final itemRow = itemRows.first;
+
+  // Combining recipes — CAST all three numeric columns
   final combineRows = await db.customSelect(
-    '''SELECT i1.name as ing1, i2.name as ing2,
-              c.amount_made_min, c.amount_made_max, c.percentage
-       FROM combining c
-       JOIN items i1 ON i1._id = c.item_1_id
-       JOIN items i2 ON i2._id = c.item_2_id
-       WHERE c.created_item_id = $itemId''',
+    '''
+    SELECT i1.name AS ing1, i2.name AS ing2,
+           COALESCE(CAST(c.amount_made_min AS INTEGER), 0) AS amount_made_min,
+           COALESCE(CAST(c.amount_made_max AS INTEGER), 0) AS amount_made_max,
+           COALESCE(CAST(c.percentage      AS INTEGER), 0) AS percentage
+    FROM combining c
+    JOIN items i1 ON i1._id = c.item_1_id
+    JOIN items i2 ON i2._id = c.item_2_id
+    WHERE c.created_item_id = $itemId
+    ''',
   ).get();
 
-  final recipes = combineRows.map((r) => CombineRecipe(
-    ingredient1: r.read<String>('ing1'),
-    ingredient2: r.read<String>('ing2'),
-    amountMin: r.read<int>('amount_made_min'),
-    amountMax: r.read<int>('amount_made_max'),
-    percentage: r.read<int>('percentage'),
-  )).toList();
+  final recipes = combineRows
+      .map((r) => CombineRecipe(
+            ingredient1: r.read<String>('ing1'),
+            ingredient2: r.read<String>('ing2'),
+            amountMin: r.read<int>('amount_made_min'),
+            amountMax: r.read<int>('amount_made_max'),
+            percentage: r.read<int>('percentage'),
+          ))
+      .toList();
 
   return ItemEntity(
-    id: item.id,
-    name: item.name,
-    type: item.type,
-    subType: item.subType,
-    rarity: item.rarity,
-    carryCapacity: item.carryCapacity,
-    buy: item.buy,
-    sell: item.sell,
-    description: item.description,
-    iconName: item.iconName,
+    id: itemRow.read<int>('_id'),
+    name: itemRow.read<String>('name'),
+    type: itemRow.read<String>('type'),
+    subType: itemRow.read<String>('sub_type'),
+    rarity: itemRow.read<int>('rarity'),
+    carryCapacity: itemRow.read<int>('carry_capacity'),
+    buy: itemRow.readNullable<int>('buy'),
+    sell: itemRow.readNullable<int>('sell'),
+    description: itemRow.readNullable<String>('description'),
+    iconName: itemRow.readNullable<String>('icon_name'),
     recipes: recipes,
   );
 });

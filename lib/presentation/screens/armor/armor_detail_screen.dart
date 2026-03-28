@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/armor_repository.dart';
@@ -88,7 +89,8 @@ class _ArmorDetailView extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   child: Row(children: [
-                    const Icon(Icons.circle, size: 8, color: AppColors.primary),
+                    const Icon(Icons.circle,
+                        size: 8, color: AppColors.primary),
                     const SizedBox(width: 10),
                     Expanded(
                         child: Text(m.itemName,
@@ -150,7 +152,7 @@ class _ResistanceTable extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall),
                 if (armor.numSlots > 0) ...[
                   const SizedBox(width: 12),
-                  Text('◯' * armor.numSlots,
+                  Text('${'◯' * armor.numSlots}',
                       style: const TextStyle(color: AppColors.onSurfaceMuted)),
                 ],
               ]),
@@ -221,8 +223,8 @@ class _SkillPointRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: positive
-                  ? AppColors.elementThunder.withValues(alpha: 0.12)
-                  : AppColors.error.withValues(alpha: 0.12),
+                  ? AppColors.elementThunder.withOpacity(0.12)
+                  : AppColors.error.withOpacity(0.12),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(

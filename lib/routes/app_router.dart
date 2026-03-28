@@ -6,10 +6,13 @@ import '../presentation/screens/monsters/monster_list_screen.dart';
 import '../presentation/screens/monsters/monster_detail_screen.dart';
 import '../presentation/screens/weapons/weapon_list_screen.dart';
 import '../presentation/screens/weapons/weapon_detail_screen.dart';
+import '../presentation/screens/weapons/weapon_tree_screen.dart';
 import '../presentation/screens/armor/armor_list_screen.dart';
 import '../presentation/screens/armor/armor_detail_screen.dart';
 import '../presentation/screens/items/item_list_screen.dart';
+import '../presentation/screens/items/item_detail_screen.dart';
 import '../presentation/screens/quests/quest_list_screen.dart';
+import '../presentation/screens/quests/quest_detail_screen.dart';
 
 abstract final class AppRoutes {
   static const monsters = '/monsters';

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../data/database/app_database.dart';
 import '../../../data/database/database_provider.dart';
 import '../../../domain/entities/other_entities.dart';
 import '../../widgets/shared_widgets.dart';
@@ -40,12 +41,16 @@ final questListProvider =
     final where = conditions.isEmpty ? '' : 'AND ${conditions.join(' AND ')}';
 
     final rows = await db.customSelect(
-      '''SELECT q._id, q.name, q.hub, q.type, q.stars, q.reward,
-                COALESCE(l.name, 'Unknown') as location_name
-         FROM quests q
-         LEFT JOIN locations l ON l._id = q.location_id
-         WHERE 1=1 $where
-         ORDER BY q.stars DESC, q.name ASC''',
+      '''
+      SELECT q._id, q.name, q.hub, q.type,
+             COALESCE(CAST(q.stars  AS INTEGER), 0) AS stars,
+             COALESCE(CAST(q.reward AS INTEGER), 0) AS reward,
+             COALESCE(l.name, 'Unknown') AS location_name
+      FROM quests q
+      LEFT JOIN locations l ON l._id = q.location_id
+      WHERE 1=1 $where
+      ORDER BY CAST(q.stars AS INTEGER) DESC, q.name ASC
+      ''',
     ).get();
 
     return rows
@@ -66,31 +71,49 @@ final questDetailProvider =
     FutureProvider.family<QuestEntity?, int>((ref, questId) async {
   final db = ref.watch(databaseProvider);
 
-  // Single raw SQL query for quest + location
+  // Single raw SQL query for quest + location — explicit columns with CAST
+  // so empty-string values in the real DB are coerced to 0.
   final questRows = await db.customSelect(
-    '''SELECT q.*, l.name as location_name
-       FROM quests q
-       LEFT JOIN locations l ON l._id = q.location_id
-       WHERE q._id = $questId''',
+    '''
+    SELECT q._id, q.name, q.goal, q.hub, q.type,
+           COALESCE(CAST(q.stars      AS INTEGER), 0) AS stars,
+           COALESCE(CAST(q.reward     AS INTEGER), 0) AS reward,
+           COALESCE(CAST(q.fee        AS INTEGER), 0) AS fee,
+           COALESCE(CAST(q.time_limit AS INTEGER), 0) AS time_limit,
+           CAST(q.hrp                 AS INTEGER) AS hrp,
+           q.sub_goal,
+           CAST(q.sub_reward          AS INTEGER) AS sub_reward,
+           COALESCE(l.name, 'Unknown') AS location_name
+    FROM quests q
+    LEFT JOIN locations l ON l._id = q.location_id
+    WHERE q._id = $questId
+    ''',
   ).get();
   if (questRows.isEmpty) return null;
   final q = questRows.first;
 
   // Monsters in this quest
   final monsterRows = await db.customSelect(
-    '''SELECT m._id, m.name, mtq.unstable
-       FROM monster_to_quest mtq
-       JOIN monsters m ON m._id = mtq.monster_id
-       WHERE mtq.quest_id = $questId''',
+    '''
+    SELECT CAST(m._id AS INTEGER) as _id, m.name, mtq.unstable
+    FROM monster_to_quest mtq
+    JOIN monsters m ON m._id = mtq.monster_id
+    WHERE mtq.quest_id = $questId
+    ''',
   ).get();
 
-  // Rewards with item names
+  // Rewards with item names — CAST percentage & stack_size
   final rewardRows = await db.customSelect(
-    '''SELECT qr.reward_slot, qr.percentage, qr.stack_size, i.name as item_name
-       FROM quest_rewards qr
-       JOIN items i ON i._id = qr.item_id
-       WHERE qr.quest_id = $questId
-       ORDER BY qr.percentage DESC''',
+    '''
+    SELECT qr.reward_slot,
+           COALESCE(CAST(qr.percentage  AS INTEGER), 0) AS percentage,
+           COALESCE(CAST(qr.stack_size  AS INTEGER), 0) AS stack_size,
+           i.name AS item_name
+    FROM quest_rewards qr
+    JOIN items i ON i._id = qr.item_id
+    WHERE qr.quest_id = $questId
+    ORDER BY CAST(qr.percentage AS INTEGER) DESC
+    ''',
   ).get();
 
   return QuestEntity(
@@ -103,7 +126,7 @@ final questDetailProvider =
     reward: q.read<int>('reward'),
     fee: q.read<int>('fee'),
     timeLimit: q.read<int>('time_limit'),
-    locationName: q.readNullable<String>('location_name') ?? 'Unknown',
+    locationName: q.read<String>('location_name'),
     hrp: q.readNullable<int>('hrp'),
     subGoal: q.readNullable<String>('sub_goal'),
     subReward: q.readNullable<int>('sub_reward'),
